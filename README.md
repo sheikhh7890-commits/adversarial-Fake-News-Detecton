@@ -51,8 +51,6 @@ statement [SEP] SUBJECT: ... [SEP] CONTEXT: ...
 │       ├── attack_success_rate_evaluation.ipynb
 │       ├── attack_success_rate_multi_model.ipynb
 │       └── clean_accuracy_multi_model.ipynb
-├── references/
-│   └── adversarial_fakenews_ICMLA.lnk
 ├── results/
 │   └── ...
 ├── scripts/

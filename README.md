@@ -1,161 +1,168 @@
-# Adversarial Fake News Detection on the LIAR Dataset
+# Fake News Detection with DeBERTa v3 Large
 
-This repository contains a notebook-first NLP research project that studies adversarial robustness for fake-news / claim-veracity classification on the LIAR dataset. The core model is `microsoft/deberta-v3-large`, trained as a 6-class classifier and evaluated under BERTAttack.
+This repository contains a local fake news detection pipeline built with PyTorch, Hugging Face Transformers, and the Hugging Face `datasets` API. The training setup is tuned for a single 12GB GPU such as an RTX 4070 and uses `microsoft/deberta-v3-large` for binary classification.
 
-The project started as a set of Jupyter notebooks for experimentation and was later refactored into reusable Python scripts and shared modules without changing the core training or evaluation logic.
+The pipeline trains on:
 
-## Project Goal
-
-The main objective is to compare:
-
-- a baseline DeBERTa model trained on the clean LIAR dataset
-- adversarially generated examples created with BERTAttack
-- adversarially trained models that mix clean and attacked samples
-- clean accuracy versus adversarial robustness across multiple runs
-
-## Dataset
-
-- Dataset: `ucsbnlp/liar`
-- Task: 6-class classification
-- Labels:
-  - `false`
-  - `half-true`
-  - `mostly-true`
-  - `true`
-  - `barely-true`
-  - `pants-fire`
-
-Input text is built from LIAR fields using the pattern:
-
-```text
-statement [SEP] SUBJECT: ... [SEP] CONTEXT: ...
+```python
+from datasets import load_dataset
+ds = load_dataset("GonzaloA/fake_news")
 ```
 
-## Repository Structure
+Everything runs locally. The project does not use the Hugging Face Hub for uploads and does not require API tokens.
+
+## What the Pipeline Does
+
+- Loads `GonzaloA/fake_news` with the Hugging Face datasets API
+- Uses the dataset's existing `train`, `validation`, and `test` splits
+- Combines `title` and `content/text` into one model input
+- Cleans text with minimal preprocessing
+- Normalizes labels to binary `0/1`
+- Drops empty or invalid rows
+- Tokenizes with `microsoft/deberta-v3-large` using `max_length=256`
+- Trains with Hugging Face `Trainer`
+- Uses RTX 4070-safe settings:
+  - `fp16=True`
+  - `batch_size=4`
+  - `gradient_accumulation_steps=4`
+  - `gradient_checkpointing=True`
+- Evaluates with:
+  - accuracy
+  - precision
+  - recall
+  - F1-score
+  - confusion matrix
+- Saves model, tokenizer, metrics, and plots locally
+- Runs a sample inference step after training
+
+## Project Structure
 
 ```text
 .
-├── docs/
-│   ├── PROJECT_TIMELINE.md
-│   └── README_refactor.md
-├── models/
-│   └── final_model/
-├── notebooks/
-│   ├── 01_baseline/
-│   │   └── deberta_baseline_training.ipynb
-│   ├── 02_adversarial_generation/
-│   │   └── adversarial_dataset_generation.ipynb
-│   ├── 03_adversarial_training/
-│   │   └── adversarial_training_fixed.ipynb
-│   └── 04_evaluation/
-│       ├── attack_success_rate_evaluation.ipynb
-│       ├── attack_success_rate_multi_model.ipynb
-│       └── clean_accuracy_multi_model.ipynb
-├── results/
-│   └── ...
-├── scripts/
-│   ├── train_baseline.py
-│   ├── generate_adversarial_dataset.py
-│   ├── train_adversarial.py
-│   ├── evaluate_attack_success.py
-│   ├── evaluate_attack_success_multi.py
-│   └── evaluate_clean_accuracy_multi.py
-├── src/
-│   └── liar_adv/
-│       ├── common.py
-│       ├── training.py
-│       ├── attacks.py
-│       └── reporting.py
-├── requirements.txt
-└── README.md
+|-- src/
+|   |-- __init__.py
+|   |-- config.py
+|   |-- data.py
+|   |-- main.py
+|   |-- model.py
+|   `-- train_eval.py
+|-- docs/
+|-- models/
+|-- notebooks/
+|-- results/
+|-- main.py
+|-- requirements.txt
+`-- README.md
 ```
 
-## Workflow
+## Module Guide
 
-### Phase 1: Notebook-based experimentation
+- `src/config.py`
+  Stores model name, dataset name, hyperparameters, label mappings, output paths, and regex patterns.
 
-The original workflow lives in the notebooks:
+- `src/data.py`
+  Loads the dataset, cleans and combines `title` plus `content/text`, normalizes labels, filters invalid rows, prints split statistics, and tokenizes the splits.
 
-- [deberta_baseline_training.ipynb](C:\Users\sheik\OneDrive\Desktop\New folder\notebooks\01_baseline\deberta_baseline_training.ipynb)
-- [adversarial_dataset_generation.ipynb](C:\Users\sheik\OneDrive\Desktop\New folder\notebooks\02_adversarial_generation\adversarial_dataset_generation.ipynb)
-- [adversarial_training_fixed.ipynb](C:\Users\sheik\OneDrive\Desktop\New folder\notebooks\03_adversarial_training\adversarial_training_fixed.ipynb)
-- [attack_success_rate_evaluation.ipynb](C:\Users\sheik\OneDrive\Desktop\New folder\notebooks\04_evaluation\attack_success_rate_evaluation.ipynb)
-- [attack_success_rate_multi_model.ipynb](C:\Users\sheik\OneDrive\Desktop\New folder\notebooks\04_evaluation\attack_success_rate_multi_model.ipynb)
-- [clean_accuracy_multi_model.ipynb](C:\Users\sheik\OneDrive\Desktop\New folder\notebooks\04_evaluation\clean_accuracy_multi_model.ipynb)
+- `src/model.py`
+  Creates the tokenizer and DeBERTa classification model and provides the prediction helper for new text.
 
-These notebooks were used to:
+- `src/train_eval.py`
+  Builds the `Trainer`, computes metrics, runs training and evaluation, plots the confusion matrix and training curve, and saves metrics and model artifacts.
 
-- train the baseline DeBERTa model
-- generate adversarial examples with TextAttack / BERTAttack
-- build non-overlapping clean + adversarial training sets
-- retrain robust models
-- compare clean accuracy and attack success rates
+- `src/main.py`
+  Runs the full pipeline:
+  1. set seeds
+  2. load and prepare dataset
+  3. tokenize
+  4. create model
+  5. train
+  6. evaluate
+  7. save outputs
+  8. run inference
 
-### Phase 2: Script refactor
+- `main.py`
+  Thin root-level entry point so the project can still be started with `python main.py`.
 
-The later refactor moves shared logic into:
+## Training Configuration
 
-- [common.py](C:\Users\sheik\OneDrive\Desktop\New folder\src\liar_adv\common.py)
-- [training.py](C:\Users\sheik\OneDrive\Desktop\New folder\src\liar_adv\training.py)
-- [attacks.py](C:\Users\sheik\OneDrive\Desktop\New folder\src\liar_adv\attacks.py)
-- [reporting.py](C:\Users\sheik\OneDrive\Desktop\New folder\src\liar_adv\reporting.py)
+The default configuration is tuned for a single GPU with 12GB VRAM:
 
-Runnable script entrypoints are:
+```python
+MODEL_NAME = "microsoft/deberta-v3-large"
+MAX_LEN = 256
+TRAIN_BATCH_SIZE = 4
+EVAL_BATCH_SIZE = 4
+GRADIENT_ACCUMULATION_STEPS = 4
+LEARNING_RATE = 2e-5
+NUM_EPOCHS = 3
+WEIGHT_DECAY = 0.01
+WARMUP_RATIO = 0.1
+EARLY_STOPPING_PATIENCE = 2
+```
 
-- [scripts/train_baseline.py](C:\Users\sheik\OneDrive\Desktop\New folder\scripts\train_baseline.py)
-- [scripts/generate_adversarial_dataset.py](C:\Users\sheik\OneDrive\Desktop\New folder\scripts\generate_adversarial_dataset.py)
-- [scripts/train_adversarial.py](C:\Users\sheik\OneDrive\Desktop\New folder\scripts\train_adversarial.py)
-- [scripts/evaluate_attack_success.py](C:\Users\sheik\OneDrive\Desktop\New folder\scripts\evaluate_attack_success.py)
-- [scripts/evaluate_attack_success_multi.py](C:\Users\sheik\OneDrive\Desktop\New folder\scripts\evaluate_attack_success_multi.py)
-- [scripts/evaluate_clean_accuracy_multi.py](C:\Users\sheik\OneDrive\Desktop\New folder\scripts\evaluate_clean_accuracy_multi.py)
+These values live in [src/config.py](C:/Users/sheik/OneDrive/Desktop/PROJECT%20FINAL/New%20folder/src/config.py).
 
-## Setup
+## Installation
 
-Install dependencies:
+Install the current dependencies:
 
 ```powershell
 pip install -r requirements.txt
 ```
 
-## Typical Usage
+You also need:
 
-Train baseline model:
+- a CUDA-compatible PyTorch build
+- `sentencepiece` for DeBERTa v3 tokenization
 
-```powershell
-python scripts/train_baseline.py
-```
-
-Generate adversarial training data:
+If `sentencepiece` is missing:
 
 ```powershell
-python scripts/generate_adversarial_dataset.py
+pip install sentencepiece
 ```
 
-Train adversarial model:
+If PyTorch is not installed with CUDA support, install the correct build for your system before running training.
+
+## How to Run
+
+Start the full pipeline with:
 
 ```powershell
-python scripts/train_adversarial.py
+python main.py
 ```
 
-Evaluate attack success rate across saved models:
+This will:
 
-```powershell
-python scripts/evaluate_attack_success_multi.py
+1. download the dataset locally through `datasets`
+2. download the DeBERTa model locally
+3. train the classifier
+4. evaluate on the test set
+5. save all artifacts locally
+6. print an example prediction
+
+Example console output:
+
+```text
+Prediction: FAKE
 ```
 
-Evaluate clean accuracy across saved models:
+## Saved Outputs
 
-```powershell
-python scripts/evaluate_clean_accuracy_multi.py
-```
+After a successful run, artifacts are stored locally in:
+
+- `./model`
+  - trained model
+  - tokenizer
+  - trainer checkpoint data
+
+- `./results`
+  - `test_metrics.json`
+  - `confusion_matrix.png`
+  - `training_curve.png`
 
 ## Notes
 
-- The notebooks are kept as the original research workflow.
-- The scripts are a cleanup layer for reproducibility and code reuse.
-- Large trained models and result folders are ignored in Git by default through `.gitignore`.
-- If you want to track selected result files on GitHub, you can remove `results/` from `.gitignore` or commit a smaller `reports/` subset manually.
-
-## Documentation
-
-For the project history and development phases, see [PROJECT_TIMELINE.md](C:\Users\sheik\OneDrive\Desktop\New folder\docs\PROJECT_TIMELINE.md).
+- Dynamic padding is used to reduce wasted memory.
+- The tokenizer truncates strictly at `256` tokens.
+- The training code is configured to avoid settings that are likely to exceed 12GB VRAM.
+- `notebooks/` is kept in the repository for experimentation history, but the main code path now lives under `src/`.
